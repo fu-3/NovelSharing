@@ -21,11 +21,17 @@
 """
 
 import html
+import json
 import re
 import shutil
 import sys
 import zipfile
 from pathlib import Path
+
+
+def _json_str(s: str) -> str:
+    """文字列を JS の文字列リテラルとして安全に埋め込む。"""
+    return json.dumps(s)
 
 # ──────────────────────────────────────────────────────────────────────────
 # 設定
@@ -35,6 +41,8 @@ INCOMING_DIR = Path("incoming")
 PUBLIC_DIR = Path("public")
 SITE_TITLE = "小説"          # 目次の見出し。自由に変更可。
 CHARS_PER_MIN = 500          # 読了時間の目安（日本語：1分あたりの文字数）
+# 短縮リンク用ストア（Cloudflare Worker）のURL。空なら短縮リンク機能は無効。
+SHORTENER_URL = "https://novel-share.fu-3.workers.dev"
 ENCODINGS = ("utf-8", "cp932")  # 読み込みを試す順（utf-8 → Shift-JIS）
 
 
@@ -821,6 +829,10 @@ APP_BODY = """\
         <div class="row"><input id="share-url" readonly>
           <button id="copy-url" class="sbtn" type="button">コピー</button></div>
         <div class="row small"><span id="url-info"></span></div>
+        <div class="row" id="short-row" style="display:none">
+          <button id="mk-short" class="bigbtn" type="button" style="font-size:.9rem;padding:.5rem 1rem">🔗 短いリンクを作成</button>
+          <span class="small" style="color:var(--muted)">長い作品でも短いURLで共有できます</span>
+        </div>
         <div class="row">
           <button id="dl-html" class="sbtn" type="button">HTMLファイルで保存</button>
           <a id="open-new" class="sbtn" target="_blank" rel="noopener">新しいタブで開く</a>
@@ -935,8 +947,10 @@ APP_JS = r"""
   function fmt(n){return n.toLocaleString('en-US');}
 
   /* ---- 状態 ---- */
-  var novel=null,payload='',curEp=-1;
+  var novel=null,payload='',curEp=-1,shortKey='';
+  var SHORTENER=(typeof window!=='undefined'&&window.__SHORTENER__)?window.__SHORTENER__:'';
   function baseUrl(){return location.origin+location.pathname;}
+  function frag(){return '#'+(shortKey?('s='+shortKey):('d='+payload));}
   function parseHash(){var h=location.hash.replace(/^#/,''),o={};h.split('&').forEach(function(kv){var i=kv.indexOf('=');if(i>0)o[kv.slice(0,i)]=kv.slice(i+1);else if(kv)o[kv]='';});return o;}
   function showHome(){root.dataset.page='index';$('#view-home').style.display='';$('#view-reader').style.display='none';window.scrollTo(0,0);updateProgress();}
   function showReader(){root.dataset.page='episode';$('#view-home').style.display='none';$('#view-reader').style.display='';window.scrollTo(0,0);updateProgress();}
@@ -960,7 +974,7 @@ APP_JS = r"""
     showHome();
   }
 
-  async function setNovel(n,updateHash){novel=n;payload=await encodePayload(n);if(updateHash)history.replaceState(null,'','#d='+payload);renderHome();}
+  async function setNovel(n,updateHash){novel=n;shortKey='';payload=await encodePayload(n);if(updateHash)history.replaceState(null,'',frag());renderHome();}
 
   function renderHome(){
     if(!novel)return;
@@ -969,19 +983,22 @@ APP_JS = r"""
     $('#novel-title').value=novel.t||'';
     var total=0;novel.e.forEach(function(ep){total+=charCount(ep.b);});
     $('#stat').textContent='全 '+novel.e.length+' 話 ・ 総 '+fmt(total)+' 文字';
-    var url=baseUrl()+'#d='+payload;
+    var url=baseUrl()+frag();
     $('#share-url').value=url;
     var info=$('#url-info'),len=url.length,tooLong=len>16000;
-    if(tooLong){info.innerHTML='<span class="warn">URLが長すぎます（'+fmt(len)+'文字）。リンク共有はできません。下の「HTMLファイルで保存」でファイルごと共有してください。</span>';}
-    else if(len>4000){info.textContent='URLの長さ：'+fmt(len)+'文字（やや長め。一部アプリで切れる場合はHTML保存を）';}
+    var shortRow=$('#short-row');if(shortRow)shortRow.style.display=(SHORTENER&&!shortKey)?'':'none';
+    var blocked=tooLong&&!shortKey;
+    if(shortKey){info.textContent='短縮リンク：'+fmt(len)+'文字';}
+    else if(tooLong){info.innerHTML='<span class="warn">URLが長すぎます（'+fmt(len)+'文字）。'+(SHORTENER?'上の「短いリンクを作成」で短く共有できます。':'下の「HTMLファイルで保存」でファイルごと共有してください。')+'</span>';}
+    else if(len>4000){info.textContent='URLの長さ：'+fmt(len)+'文字（やや長め）'+(SHORTENER?' ／「短いリンクを作成」でさらに短縮可':'');}
     else{info.textContent='URLの長さ：'+fmt(len)+'文字';}
-    var cb=$('#copy-url');cb.disabled=tooLong;cb.textContent=tooLong?'コピー不可':'コピー';
-    var sb=$('#share-btn');if(sb)sb.disabled=tooLong;
-    var on=$('#open-new');if(on){if(tooLong){on.classList.add('disabled');on.removeAttribute('href');}else{on.classList.remove('disabled');on.href=url;}}
+    var cb=$('#copy-url');cb.disabled=blocked;cb.textContent=blocked?'コピー不可':'コピー';
+    var sb=$('#share-btn');if(sb)sb.disabled=blocked;
+    var on=$('#open-new');if(on){if(blocked){on.classList.add('disabled');on.removeAttribute('href');}else{on.classList.remove('disabled');on.href=url;}}
     var toc=$('#toc');toc.innerHTML='';
     novel.e.forEach(function(ep,idx){
       var c=charCount(ep.b),li=document.createElement('li'),a=document.createElement('a');
-      a.href='#d='+payload+'&p='+idx;
+      a.href=frag()+'&p='+idx;
       a.innerHTML='<span class="num">'+(idx+1)+'</span><span class="ti"></span><span class="meta">'+fmt(c)+'字・約'+minutes(c)+'分</span>';
       a.querySelector('.ti').textContent=ep.t;
       a.addEventListener('click',function(e){e.preventDefault();openEpisode(idx);});
@@ -991,13 +1008,13 @@ APP_JS = r"""
 
   function buildNav(idx){
     var nav=$('#ep-nav');nav.innerHTML='';
-    function mk(label,target){var el;if(target===null){el=document.createElement('span');el.className='disabled';}else{el=document.createElement('a');el.href='#d='+payload+'&p='+target;el.addEventListener('click',function(e){e.preventDefault();openEpisode(target);});}el.textContent=label;return el;}
+    function mk(label,target){var el;if(target===null){el=document.createElement('span');el.className='disabled';}else{el=document.createElement('a');el.href=frag()+'&p='+target;el.addEventListener('click',function(e){e.preventDefault();openEpisode(target);});}el.textContent=label;return el;}
     nav.appendChild(mk('← 前の話',idx>0?idx-1:null));
-    var toc=document.createElement('a');toc.href='#d='+payload;toc.textContent='目次';toc.addEventListener('click',function(e){e.preventDefault();gotoHome();});nav.appendChild(toc);
+    var toc=document.createElement('a');toc.href=frag();toc.textContent='目次';toc.addEventListener('click',function(e){e.preventDefault();gotoHome();});nav.appendChild(toc);
     nav.appendChild(mk('次の話 →',idx<novel.e.length-1?idx+1:null));
   }
 
-  function gotoHome(){history.pushState(null,'','#d='+payload);showHome();}
+  function gotoHome(){history.pushState(null,'',frag());showHome();}
 
   function openEpisode(idx,push){
     if(!novel||!novel.e[idx])return;
@@ -1008,8 +1025,8 @@ APP_JS = r"""
     buildNav(idx);
     var sr=$('#ep-share');sr.textContent='この話をシェア：';
     var btn=document.createElement('button');btn.className='sbtn';btn.type='button';btn.textContent='リンクをコピー';
-    btn.addEventListener('click',function(){copyText(baseUrl()+'#d='+payload+'&p='+idx);});sr.appendChild(btn);
-    if(push!==false)history.pushState(null,'','#d='+payload+'&p='+idx);
+    btn.addEventListener('click',function(){copyText(baseUrl()+frag()+'&p='+idx);});sr.appendChild(btn);
+    if(push!==false)history.pushState(null,'',frag()+'&p='+idx);
     document.title=ep.t;curEp=idx;showReader();
   }
 
@@ -1019,9 +1036,9 @@ APP_JS = r"""
     $('#ep-meta').textContent='';
     var body=$('#ep-body');body.textContent='';
     novel.e.forEach(function(ep){var h=document.createElement('h2');h.textContent=ep.t;body.appendChild(h);var tmp=document.createElement('div');renderBody(tmp,ep.b);while(tmp.firstChild)body.appendChild(tmp.firstChild);});
-    var nav=$('#ep-nav');nav.innerHTML='';var toc=document.createElement('a');toc.href='#d='+payload;toc.textContent='目次へ戻る';toc.addEventListener('click',function(e){e.preventDefault();gotoHome();});nav.appendChild(toc);
+    var nav=$('#ep-nav');nav.innerHTML='';var toc=document.createElement('a');toc.href=frag();toc.textContent='目次へ戻る';toc.addEventListener('click',function(e){e.preventDefault();gotoHome();});nav.appendChild(toc);
     $('#ep-share').textContent='';
-    if(push!==false)history.pushState(null,'','#d='+payload+'&all=1');
+    if(push!==false)history.pushState(null,'',frag()+'&all=1');
     document.title=(novel.t||'小説')+' ｜ 全話';curEp=-1;showReader();
   }
 
@@ -1044,8 +1061,17 @@ APP_JS = r"""
   $('#novel-title').addEventListener('change',async function(){if(novel){novel.t=$('#novel-title').value||'わたしの小説';await setNovel(novel,true);}});
   $('#copy-url').addEventListener('click',function(){copyText($('#share-url').value);});
   $('#dl-html').addEventListener('click',downloadHtml);
+  (function(){var b=$('#mk-short');if(!b)return;b.addEventListener('click',function(){
+    if(!novel||!SHORTENER)return;
+    b.disabled=true;b.textContent='作成中…';
+    fetch(SHORTENER,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:payload})
+      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+      .then(function(o){shortKey=o.key;history.replaceState(null,'',frag());renderHome();toast('短いリンクを作成しました');})
+      .catch(function(e){alert('短縮に失敗しました：'+e.message);})
+      .then(function(){b.disabled=false;b.textContent='🔗 短いリンクを作成';});
+  });})();
   $('#read-all').addEventListener('click',function(e){e.preventDefault();openAll();});
-  $('#clear').addEventListener('click',function(){novel=null;payload='';history.replaceState(null,'',baseUrl());$('#loaded').style.display='none';$('#dropzone').style.display='';document.title='小説アップロード＆共有';showHome();});
+  $('#clear').addEventListener('click',function(){novel=null;payload='';shortKey='';history.replaceState(null,'',baseUrl());$('#loaded').style.display='none';$('#dropzone').style.display='';document.title='小説アップロード＆共有';showHome();});
   $('#home-link').addEventListener('click',function(e){e.preventDefault();if(novel)gotoHome();else showHome();});
   $('#to-toc-top').addEventListener('click',function(e){e.preventDefault();gotoHome();});
 
@@ -1069,7 +1095,16 @@ APP_JS = r"""
   }
   async function boot(){
     var embedded=(typeof window!=='undefined'&&window.__EMBED__)?window.__EMBED__:null;
-    var h=parseHash();var data=embedded||h.d;
+    var h=parseHash();
+    if(!embedded&&h.s&&SHORTENER){
+      try{
+        var resp=await fetch(SHORTENER+'/'+encodeURIComponent(h.s));
+        if(!resp.ok)throw new Error('HTTP '+resp.status);
+        var txt=await resp.text();
+        shortKey=h.s;payload=txt;novel=await decodePayload(txt);renderHome();route(h,false);return;
+      }catch(e){alert('共有データの取得に失敗しました：'+e.message);showHome();return;}
+    }
+    var data=embedded||h.d;
     if(data){
       try{novel=await decodePayload(data);payload=data;renderHome();route(h,false);return;}
       catch(e){alert('共有データの読み込みに失敗：'+e.message);}
@@ -1094,6 +1129,7 @@ def build_app() -> str:
         "if(s.theme)d.dataset.theme=s.theme;if(s.font)d.dataset.font=s.font;"
         "if(s.mode)d.dataset.mode=s.mode;"
         "if(s.fscale)d.style.setProperty('--user-scale',s.fscale);}catch(e){}})();</script>\n"
+        "<script>window.__SHORTENER__=" + _json_str(SHORTENER_URL) + ";</script>\n"
         "<style>\n" + CSS + APP_CSS + "</style>\n</head>\n"
     )
     return head + "<body>\n" + APP_BODY + "\n<script>\n" + APP_JS + "\n</script>\n</body>\n</html>\n"

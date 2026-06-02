@@ -1,0 +1,7 @@
+name = "novel-share"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+[[kv_namespaces]]
+binding = "NOVELS"
+id = "59c874146e694c4cb0b4b95947939f89"
