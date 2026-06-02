@@ -1017,10 +1017,10 @@ APP_JS = r"""
   /* ---- アップロードUI ---- */
   var dz=$('#dropzone'),fileInput=$('#file');
   $('#pick').addEventListener('click',function(){fileInput.click();});
-  fileInput.addEventListener('change',function(){handleFiles(fileInput.files);fileInput.value='';});
+  fileInput.addEventListener('change',function(){var fs=Array.prototype.slice.call(fileInput.files);fileInput.value='';handleFiles(fs);});
   ['dragenter','dragover'].forEach(function(ev){dz.addEventListener(ev,function(e){e.preventDefault();dz.classList.add('drag');});});
   ['dragleave','drop'].forEach(function(ev){dz.addEventListener(ev,function(e){e.preventDefault();dz.classList.remove('drag');});});
-  dz.addEventListener('drop',function(e){handleFiles(e.dataTransfer.files);});
+  dz.addEventListener('drop',function(e){handleFiles(Array.prototype.slice.call(e.dataTransfer.files));});
   ['dragover','drop'].forEach(function(ev){window.addEventListener(ev,function(e){e.preventDefault();},false);});
 
   $('#novel-title').addEventListener('change',async function(){if(novel){novel.t=$('#novel-title').value||'わたしの小説';await setNovel(novel,true);}});
