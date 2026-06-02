@@ -796,6 +796,28 @@ APP_CSS = """
 .sbtn.disabled{opacity:.45;cursor:not-allowed;pointer-events:none;}
 #ep-body h2{font-size:1.25rem;margin:2.4rem 0 1.2rem;padding-bottom:.5rem;
   border-bottom:1px solid var(--border);}
+
+/* PDF作成（印刷）用。画面では非表示、印刷時のみ表示 */
+#print-book{display:none;}
+@page{size:A4;margin:18mm;}
+#print-book{color:#000;background:#fff;font-size:10.5pt;line-height:1.8;}
+#print-book.serif{font-family:"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP","Times New Roman",serif;}
+#print-book.sans{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo","Noto Sans JP",sans-serif;}
+#print-book .pcover{min-height:92vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;}
+#print-book .pcover h1{font-size:2.2em;margin:0 0 1em;line-height:1.4;}
+#print-book .pmeta{color:#444;font-size:.95em;}
+#print-book .ptoc h2,#print-book .pchapter h2{font-size:1.4em;margin:0 0 1em;padding-bottom:.3em;border-bottom:1px solid #999;}
+#print-book .ptoc ol{padding-left:1.4em;line-height:2.1;margin:0;}
+#print-book .pchapter p{margin:0 0 .5em;text-indent:1em;}
+#print-book .pchapter p.blank{margin:0;height:.5em;}
+#print-book.vertical .pchapter,#print-book.vertical .ptoc{writing-mode:vertical-rl;text-orientation:mixed;}
+#print-book.vertical .pcover{writing-mode:horizontal-tb;}
+@media print{
+  html,body{background:#fff !important;}
+  .toolbar,#progress,#to-top,main.wrap{display:none !important;}
+  #print-book{display:block !important;}
+  .pb{break-before:page;page-break-before:always;}
+}
 """
 
 APP_BODY = """\
@@ -838,6 +860,7 @@ APP_BODY = """\
           <span class="small" style="color:var(--muted)">長い作品でも短いURLで共有できます</span>
         </div>
         <div class="row">
+          <button id="mk-pdf" class="sbtn" type="button">\U0001F4C4 PDFを作成</button>
           <button id="dl-html" class="sbtn" type="button">HTMLファイルで保存</button>
           <a id="open-new" class="sbtn" target="_blank" rel="noopener">新しいタブで開く</a>
           <button id="share-btn" data-share class="sbtn" type="button">共有する</button>
@@ -857,7 +880,8 @@ APP_BODY = """\
     <div class="share-row" id="ep-share"></div>
   </section>
 </main>
-<button id="to-top" type="button" aria-label="先頭へ戻る" title="先頭へ">↑</button>"""
+<button id="to-top" type="button" aria-label="先頭へ戻る" title="先頭へ">↑</button>
+<div id="print-book"></div>"""
 
 APP_JS = r"""
 (function(){
@@ -1065,6 +1089,22 @@ APP_JS = r"""
   $('#novel-title').addEventListener('change',async function(){if(novel){novel.t=$('#novel-title').value||'わたしの小説';await setNovel(novel,true);}});
   $('#copy-url').addEventListener('click',function(){copyText($('#share-url').value);});
   $('#dl-html').addEventListener('click',downloadHtml);
+  function buildPrintBook(){
+    var book=$('#print-book');if(!book||!novel)return;
+    var serif=root.dataset.font==='serif',vertical=root.dataset.mode==='vertical';
+    book.className=(serif?'serif':'sans')+(vertical?' vertical':'');
+    book.innerHTML='';
+    var total=0;novel.e.forEach(function(ep){total+=charCount(ep.b);});
+    var c=document.createElement('section');c.className='pcover';
+    var h=document.createElement('h1');h.textContent=novel.t||'無題';c.appendChild(h);
+    var m=document.createElement('p');m.className='pmeta';m.textContent='全 '+novel.e.length+' 話 ・ 総 '+fmt(total)+' 文字';c.appendChild(m);
+    book.appendChild(c);
+    var t=document.createElement('section');t.className='ptoc pb';
+    var th=document.createElement('h2');th.textContent='目次';t.appendChild(th);
+    var ol=document.createElement('ol');novel.e.forEach(function(ep){var li=document.createElement('li');li.textContent=ep.t;ol.appendChild(li);});t.appendChild(ol);book.appendChild(t);
+    novel.e.forEach(function(ep){var s=document.createElement('section');s.className='pchapter pb';var h2=document.createElement('h2');h2.textContent=ep.t;s.appendChild(h2);var d=document.createElement('div');renderBody(d,ep.b);while(d.firstChild)s.appendChild(d.firstChild);book.appendChild(s);});
+  }
+  (function(){var b=$('#mk-pdf');if(b)b.addEventListener('click',function(){if(!novel)return;buildPrintBook();setTimeout(function(){window.print();},60);});})();
   (function(){var b=$('#mk-short');if(!b)return;b.addEventListener('click',function(){
     if(!novel||!SHORTENER)return;
     b.disabled=true;b.textContent='作成中…';
