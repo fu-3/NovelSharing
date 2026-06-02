@@ -774,6 +774,8 @@ APP_CSS = """
   background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;}
 .warn{color:#c0392b;}
 :root[data-theme="dark"] .warn{color:#ff8a80;}
+.sbtn[disabled]{opacity:.45;cursor:not-allowed;}
+.sbtn.disabled{opacity:.45;cursor:not-allowed;pointer-events:none;}
 #ep-body h2{font-size:1.25rem;margin:2.4rem 0 1.2rem;padding-bottom:.5rem;
   border-bottom:1px solid var(--border);}
 """
@@ -815,7 +817,7 @@ APP_BODY = """\
         <div class="row">
           <button id="dl-html" class="sbtn" type="button">HTMLファイルで保存</button>
           <a id="open-new" class="sbtn" target="_blank" rel="noopener">新しいタブで開く</a>
-          <button data-share class="sbtn" type="button">共有する</button>
+          <button id="share-btn" data-share class="sbtn" type="button">共有する</button>
         </div>
       </div>
       <p class="count"><span id="stat"></span> ・ <a href="#" id="read-all">全話を続けて読む →</a></p>
@@ -870,6 +872,8 @@ APP_JS = r"""
     else window.prompt('URL',url);
   }
   [].forEach.call(document.querySelectorAll('[data-share]'),function(b){b.addEventListener('click',function(){shareUrl(location.href,document.title);});});
+  function fallbackCopy(text){try{var ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.top='0';ta.style.opacity='0';document.body.appendChild(ta);ta.focus();ta.select();ta.setSelectionRange(0,text.length);var ok=document.execCommand('copy');ta.remove();toast(ok?'リンクをコピーしました':'コピーできませんでした。手動で選択してください');return ok;}catch(e){toast('コピーできませんでした');return false;}}
+  function copyText(text){if(navigator.clipboard&&navigator.clipboard.writeText&&window.isSecureContext){navigator.clipboard.writeText(text).then(function(){toast('リンクをコピーしました');},function(){fallbackCopy(text);});}else{fallbackCopy(text);}}
 
   /* ---- バイナリ / 圧縮（外部ライブラリなし） ---- */
   function b64urlEnc(bytes){var bin='',ch=0x8000;for(var i=0;i<bytes.length;i+=ch){bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+ch));}return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
@@ -955,11 +959,14 @@ APP_JS = r"""
     var total=0;novel.e.forEach(function(ep){total+=charCount(ep.b);});
     $('#stat').textContent='全 '+novel.e.length+' 話 ・ 総 '+fmt(total)+' 文字';
     var url=baseUrl()+'#d='+payload;
-    $('#share-url').value=url;$('#open-new').href=url;
-    var info=$('#url-info'),len=url.length;
-    if(len>16000){info.innerHTML='<span class="warn">URLが長すぎます（'+fmt(len)+'文字）。SNSでは送れないことがあります。「HTMLファイルで保存」での共有をおすすめします。</span>';}
-    else if(len>4000){info.textContent='URLの長さ：'+fmt(len)+'文字（やや長め）';}
+    $('#share-url').value=url;
+    var info=$('#url-info'),len=url.length,tooLong=len>16000;
+    if(tooLong){info.innerHTML='<span class="warn">URLが長すぎます（'+fmt(len)+'文字）。リンク共有はできません。下の「HTMLファイルで保存」でファイルごと共有してください。</span>';}
+    else if(len>4000){info.textContent='URLの長さ：'+fmt(len)+'文字（やや長め。一部アプリで切れる場合はHTML保存を）';}
     else{info.textContent='URLの長さ：'+fmt(len)+'文字';}
+    var cb=$('#copy-url');cb.disabled=tooLong;cb.textContent=tooLong?'コピー不可':'コピー';
+    var sb=$('#share-btn');if(sb)sb.disabled=tooLong;
+    var on=$('#open-new');if(on){if(tooLong){on.classList.add('disabled');on.removeAttribute('href');}else{on.classList.remove('disabled');on.href=url;}}
     var toc=$('#toc');toc.innerHTML='';
     novel.e.forEach(function(ep,idx){
       var c=charCount(ep.b),li=document.createElement('li'),a=document.createElement('a');
@@ -990,7 +997,7 @@ APP_JS = r"""
     buildNav(idx);
     var sr=$('#ep-share');sr.textContent='この話をシェア：';
     var btn=document.createElement('button');btn.className='sbtn';btn.type='button';btn.textContent='リンクをコピー';
-    btn.addEventListener('click',function(){shareUrl(baseUrl()+'#d='+payload+'&p='+idx,ep.t);});sr.appendChild(btn);
+    btn.addEventListener('click',function(){copyText(baseUrl()+'#d='+payload+'&p='+idx);});sr.appendChild(btn);
     if(push!==false)history.pushState(null,'','#d='+payload+'&p='+idx);
     document.title=ep.t;curEp=idx;showReader();
   }
@@ -1024,7 +1031,7 @@ APP_JS = r"""
   ['dragover','drop'].forEach(function(ev){window.addEventListener(ev,function(e){e.preventDefault();},false);});
 
   $('#novel-title').addEventListener('change',async function(){if(novel){novel.t=$('#novel-title').value||'わたしの小説';await setNovel(novel,true);}});
-  $('#copy-url').addEventListener('click',function(){shareUrl($('#share-url').value,novel?novel.t:document.title);});
+  $('#copy-url').addEventListener('click',function(){copyText($('#share-url').value);});
   $('#dl-html').addEventListener('click',downloadHtml);
   $('#read-all').addEventListener('click',function(e){e.preventDefault();openAll();});
   $('#clear').addEventListener('click',function(){novel=null;payload='';history.replaceState(null,'',baseUrl());$('#loaded').style.display='none';$('#dropzone').style.display='';document.title='小説アップロード＆共有';showHome();});
