@@ -371,6 +371,8 @@ def main():
     (PUBLIC_DIR / "app.js").write_text(JS, encoding="utf-8")
     # 誰でもブラウザだけで小説をアップロード＆共有できる単一ページアプリ
     (PUBLIC_DIR / "upload.html").write_text(build_app(), encoding="utf-8")
+    # zip/txt を読みやすいPDFに整形するツール
+    (PUBLIC_DIR / "pdf.html").write_text(build_pdf_tool(), encoding="utf-8")
 
     # 原稿がまだ無い場合は、空のプレースホルダーサイトを生成（CIを止めない）
     if not txt_files:
@@ -766,7 +768,8 @@ JS = """\
 # ブラウザ完結アップローダ＆共有アプリ（upload.html）
 # ──────────────────────────────────────────────────────────────────────────
 UPLOAD_BANNER = ('<p class="count"><a href="upload.html">'
-                 '\U0001F4E4 自分の小説をアップロード＆共有</a></p>\n')
+                 '\U0001F4E4 アップロード＆共有</a> ・ '
+                 '<a href="pdf.html">\U0001F4C4 zipをPDFに整形</a></p>\n')
 
 APP_CSS = """
 .dropzone{border:2px dashed var(--border);border-radius:14px;padding:2.6rem 1rem;
@@ -823,6 +826,7 @@ APP_BODY = """\
       <input id="file" type="file" accept=".zip,.txt,text/plain,application/zip" multiple hidden>
       <p class="hint">UTF-8 / Shift-JIS 対応・複数選択可・すべてブラウザ内で処理（アップロード送信なし）</p>
     </div>
+    <p class="count" style="margin-top:1rem"><a href="pdf.html">\U0001F4C4 読みやすいPDFに整形したい場合はこちら →</a></p>
     <div id="loaded" style="display:none">
       <label class="titlebar">作品タイトル：<input id="novel-title" type="text" placeholder="わたしの小説"></label>
       <div class="share-box">
@@ -1133,6 +1137,271 @@ def build_app() -> str:
         "<style>\n" + CSS + APP_CSS + "</style>\n</head>\n"
     )
     return head + "<body>\n" + APP_BODY + "\n<script>\n" + APP_JS + "\n</script>\n</body>\n</html>\n"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# txt/zip → 読みやすいPDF 整形ツール（pdf.html）
+# 外部ライブラリなし。ブラウザの「印刷 → PDFで保存」で高品質PDFを出力する。
+# ──────────────────────────────────────────────────────────────────────────
+PDF_CSS = """
+:root{--fs:10.5pt;--lh:1.8;}
+*{box-sizing:border-box;}
+body{margin:0;background:#ececed;color:#111;
+  font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo","Noto Sans JP",system-ui,sans-serif;}
+a{color:#2b6cb0;}
+.topbar{display:flex;justify-content:space-between;align-items:center;
+  padding:.55rem 1rem;background:#1f2937;color:#fff;}
+.topbar .brand{color:#fff;text-decoration:none;font-weight:600;}
+.topbar .links a{color:#cdd7e5;text-decoration:none;margin-left:1rem;font-size:.9rem;}
+.wrap{max-width:62rem;margin:0 auto;padding:1.4rem 1.25rem 0;}
+h1.page-title{font-size:1.4rem;margin:.4rem 0 1.2rem;}
+.dropzone{border:2px dashed #bbb;border-radius:14px;padding:2.6rem 1rem;text-align:center;background:#fff;
+  transition:border-color .2s,background .2s;}
+.dropzone.drag{border-color:#2b6cb0;background:#eef4fb;}
+.dropzone p{margin:.4rem 0;color:#666;}
+.bigbtn{font:inherit;font-size:1rem;cursor:pointer;background:#2b6cb0;color:#fff;border:0;
+  border-radius:10px;padding:.7rem 1.3rem;margin:.4rem 0;}
+.bigbtn:hover{opacity:.92;}
+.sbtn{font:inherit;cursor:pointer;background:#fff;border:1px solid #ccc;border-radius:8px;padding:.5rem .9rem;}
+.hint{color:#666;font-size:.85rem;}
+.controls{display:flex;flex-wrap:wrap;gap:.9rem 1.1rem;background:#fff;border:1px solid #e2e2e2;
+  border-radius:12px;padding:1rem 1.1rem;margin:1rem 0;}
+.controls label{display:flex;flex-direction:column;font-size:.78rem;color:#555;gap:.25rem;}
+.controls label.chk{flex-direction:row;align-items:center;gap:.35rem;font-size:.9rem;color:#111;}
+.controls select,.controls input[type=text]{font:inherit;padding:.4rem .5rem;border:1px solid #ccc;border-radius:7px;background:#fff;}
+.controls input[type=text]{min-width:18rem;}
+.actions{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin:.4rem 0 .6rem;}
+
+/* ページ用スタイル（プレビュー） */
+.book{--paperw:210mm;width:var(--paperw);max-width:100%;margin:1.5rem auto;background:#fff;color:#111;
+  box-shadow:0 2px 16px rgba(0,0,0,.18);padding:18mm;
+  font-size:var(--fs);line-height:var(--lh);}
+.book.serif{font-family:"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP","Times New Roman",serif;}
+.book.sans{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo","Noto Sans JP",sans-serif;}
+.book .cover{min-height:60vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;}
+.book .cover h1{font-size:2.2em;margin:0 0 1em;line-height:1.4;}
+.book .cover-meta{color:#555;font-size:.95em;}
+.book .toc h2,.book .chapter h2{font-size:1.4em;margin:0 0 1em;padding-bottom:.3em;border-bottom:1px solid #ccc;}
+.book .toc ol{padding-left:1.4em;line-height:2.1;margin:0;}
+.book .chapter{margin-top:1.6em;}
+.book .chapter:first-child{margin-top:0;}
+.book .chapter p{margin:0 0 .5em;text-indent:1em;}
+.book .chapter p.blank{margin:0;height:.5em;}
+
+/* 縦書き（実験的） */
+.book.vertical .chapter,.book.vertical .toc{writing-mode:vertical-rl;text-orientation:mixed;}
+.book.vertical .cover{writing-mode:horizontal-tb;}
+
+@media screen{
+  .book .pb{border-top:2px dashed #dcdcdc;margin-top:2rem;padding-top:1.6rem;}
+  .book.vertical .chapter,.book.vertical .toc{height:240mm;}
+}
+@media print{
+  body{background:#fff;}
+  .no-print{display:none !important;}
+  .book{width:auto;max-width:none;margin:0;padding:0;box-shadow:none;}
+  .book .cover{min-height:92vh;}
+  .pb{break-before:page;page-break-before:always;}
+  .book .chapter{margin-top:0;}
+}
+"""
+
+PDF_BODY = """\
+<header class="topbar no-print">
+  <a class="brand" href="index.html">\U0001F4DA マイ本棚</a>
+  <span class="links"><a href="upload.html">\U0001F4E4 共有ツール</a></span>
+</header>
+<div class="wrap no-print">
+  <h1 class="page-title">txt / zip を読みやすいPDFに整形</h1>
+  <div id="dropzone" class="dropzone">
+    <p>ここに <b>.zip</b> または <b>.txt</b> をドラッグ＆ドロップ</p>
+    <p>または</p>
+    <button id="pick" class="bigbtn" type="button">ファイルを選択</button>
+    <input id="file" type="file" accept=".zip,.txt,text/plain,application/zip" multiple hidden>
+    <p class="hint">UTF-8 / Shift-JIS 対応・複数選択可・すべてブラウザ内で処理（送信なし）</p>
+  </div>
+  <div id="panel" style="display:none">
+    <div class="controls">
+      <label>作品タイトル<input id="opt-title" type="text" placeholder="無題"></label>
+      <label>用紙<select id="opt-paper"><option value="A4">A4</option><option value="A5">A5</option><option value="B5">B5</option><option value="letter">レター</option></select></label>
+      <label>余白<select id="opt-margin"><option>標準</option><option>広め</option><option>狭め</option></select></label>
+      <label>文字サイズ(pt)<select id="opt-fs"><option>9</option><option selected>10.5</option><option>12</option><option>14</option></select></label>
+      <label>行間<select id="opt-lh"><option>1.6</option><option selected>1.8</option><option>2.0</option></select></label>
+      <label>書体<select id="opt-font"><option value="serif">明朝</option><option value="sans">ゴシック</option></select></label>
+      <label>組方向<select id="opt-mode"><option value="horizontal">横書き</option><option value="vertical">縦書き（実験的）</option></select></label>
+      <label class="chk"><input id="opt-cover" type="checkbox" checked>表紙</label>
+      <label class="chk"><input id="opt-toc" type="checkbox" checked>目次</label>
+      <label class="chk"><input id="opt-pagebreak" type="checkbox" checked>各話を改ページ</label>
+    </div>
+    <div class="actions">
+      <button id="btn-print" class="bigbtn" type="button">\U0001F4C4 PDFとして保存</button>
+      <button id="btn-clear" class="sbtn" type="button">別のファイル</button>
+      <span id="stat" class="hint"></span>
+    </div>
+    <p class="hint">下はプレビュー（目安）です。実際の改ページは「PDFとして保存」を押した後の<b>印刷プレビュー</b>で確認できます。保存先（送信先）で「<b>PDFに保存</b>」を選んでください。ページ番号を入れたい場合は印刷ダイアログの「ヘッダーとフッター」をオンに。</p>
+  </div>
+</div>
+<div id="book" class="book"></div>"""
+
+PDF_JS = r"""
+(function(){
+  var $=function(s){return document.querySelector(s);};
+
+  /* ---- 圧縮/zip/デコード（共有ツールと同じロジック） ---- */
+  async function inflate(bytes){var ds=new DecompressionStream('deflate-raw');var st=new Blob([bytes]).stream().pipeThrough(ds);return new Uint8Array(await new Response(st).arrayBuffer());}
+  async function decodeText(bytes){try{return new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch(e){try{return new TextDecoder('shift_jis').decode(bytes);}catch(e2){return new TextDecoder('utf-8').decode(bytes);}}}
+  async function parseZip(ab){
+    var dv=new DataView(ab),u8=new Uint8Array(ab),eocd=-1;
+    for(var i=ab.byteLength-22;i>=0;i--){if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;}}
+    if(eocd<0)throw new Error('ZIPとして読めません');
+    var count=dv.getUint16(eocd+10,true),p=dv.getUint32(eocd+16,true),metas=[];
+    for(var n=0;n<count;n++){
+      if(dv.getUint32(p,true)!==0x02014b50)break;
+      var flag=dv.getUint16(p+8,true),method=dv.getUint16(p+10,true),csize=dv.getUint32(p+20,true),
+          fn=dv.getUint16(p+28,true),ex=dv.getUint16(p+30,true),cm=dv.getUint16(p+32,true),lho=dv.getUint32(p+42,true);
+      var nb=u8.subarray(p+46,p+46+fn);
+      var name=(flag&0x800)?new TextDecoder('utf-8').decode(nb):new TextDecoder('shift_jis').decode(nb);
+      metas.push({name:name,method:method,csize:csize,lho:lho});
+      p=p+46+fn+ex+cm;
+    }
+    var out=[];
+    for(var k=0;k<metas.length;k++){
+      var m=metas[k];
+      if(/\/$/.test(m.name)||/(^|\/)__MACOSX\//.test(m.name)||/(^|\/)\._/.test(m.name))continue;
+      if(!/\.txt$/i.test(m.name))continue;
+      var lfn=dv.getUint16(m.lho+26,true),lex=dv.getUint16(m.lho+28,true),s=m.lho+30+lfn+lex;
+      var comp=u8.subarray(s,s+m.csize);
+      var bytes=m.method===0?comp:await inflate(comp);
+      out.push({name:m.name.split('/').pop(),bytes:bytes});
+    }
+    return out;
+  }
+  function z2h(s){return s.replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);});}
+  function firstNum(s){var m=z2h(s).match(/\d+/);return m?parseInt(m[0],10):null;}
+  function natKey(s){return z2h(s).split(/(\d+)/).map(function(t){return /^\d+$/.test(t)?('00000000000'+t).slice(-12):t.toLowerCase();}).join(String.fromCharCode(1));}
+  function sortEps(a){a.sort(function(x,y){var nx=firstNum(x.t),ny=firstNum(y.t),gx=nx===null?1:0,gy=ny===null?1:0;if(gx!==gy)return gx-gy;if(nx!==null&&ny!==null&&nx!==ny)return nx-ny;var kx=natKey(x.t),ky=natKey(y.t);return kx<ky?-1:kx>ky?1:0;});return a;}
+  function charCount(t){return t.replace(/\s/g,'').length;}
+  function fmt(n){return n.toLocaleString('en-US');}
+
+  function fillBody(container,text){
+    text=text.replace(/\r\n?/g,'\n');
+    var frag=document.createDocumentFragment();
+    text.split('\n').forEach(function(line){
+      var s=line.trim();var p=document.createElement('p');
+      if(s===''){p.className='blank';}else{p.textContent=s;}
+      frag.appendChild(p);
+    });
+    container.appendChild(frag);
+  }
+
+  /* ---- 状態 ---- */
+  var novel=null,totalChars=0;
+
+  function opts(){
+    return {
+      paper:$('#opt-paper').value, margin:$('#opt-margin').value,
+      fs:$('#opt-fs').value, lh:$('#opt-lh').value, font:$('#opt-font').value,
+      vertical:$('#opt-mode').value==='vertical',
+      cover:$('#opt-cover').checked, toc:$('#opt-toc').checked, pagebreak:$('#opt-pagebreak').checked,
+      title:$('#opt-title').value
+    };
+  }
+  function applyPageCss(o){
+    var mm={'狭め':'12mm','標準':'18mm','広め':'25mm'}[o.margin]||'18mm';
+    $('#pagecss').textContent='@page{size:'+o.paper+'; margin:'+mm+';}';
+  }
+  function paperWidth(p){return {A4:'210mm',A5:'148mm',B5:'182mm',letter:'216mm'}[p]||'210mm';}
+
+  function render(){
+    if(!novel)return;
+    var o=opts();
+    applyPageCss(o);
+    var book=$('#book');
+    book.className='book '+(o.font==='serif'?'serif':'sans')+(o.vertical?' vertical':'');
+    book.style.setProperty('--paperw',paperWidth(o.paper));
+    book.style.setProperty('--fs',o.fs+'pt');
+    book.style.setProperty('--lh',o.lh);
+    book.innerHTML='';
+    var front=0;
+    if(o.cover){
+      var c=document.createElement('section');c.className='cover';
+      var h=document.createElement('h1');h.textContent=o.title||'無題';c.appendChild(h);
+      var m=document.createElement('p');m.className='cover-meta';
+      m.textContent='全 '+novel.e.length+' 話 ・ 総 '+fmt(totalChars)+' 文字';c.appendChild(m);
+      book.appendChild(c);front++;
+    }
+    if(o.toc){
+      var t=document.createElement('section');t.className='toc'+(front>0?' pb':'');
+      var th=document.createElement('h2');th.textContent='目次';t.appendChild(th);
+      var ol=document.createElement('ol');
+      novel.e.forEach(function(ep){var li=document.createElement('li');li.textContent=ep.t;ol.appendChild(li);});
+      t.appendChild(ol);book.appendChild(t);front++;
+    }
+    novel.e.forEach(function(ep,i){
+      var sec=document.createElement('section');
+      var brk=o.pagebreak?(i>0||front>0):(i===0&&front>0);
+      sec.className='chapter'+(brk?' pb':'');
+      var h2=document.createElement('h2');h2.textContent=ep.t;sec.appendChild(h2);
+      var bodyDiv=document.createElement('div');fillBody(bodyDiv,ep.b);
+      while(bodyDiv.firstChild)sec.appendChild(bodyDiv.firstChild);
+      book.appendChild(sec);
+    });
+  }
+
+  /* ---- ファイル取り込み ---- */
+  async function handleFiles(list){
+    if(!list||!list.length)return;
+    if(typeof DecompressionStream==='undefined'){alert('このブラウザは ZIP 展開に未対応です。最新の Chrome / Edge / Safari / Firefox をお使いください。');}
+    var eps=[],zipName='';
+    for(var i=0;i<list.length;i++){
+      var file=list[i],low=file.name.toLowerCase(),ab=await file.arrayBuffer();
+      try{
+        if(low.endsWith('.zip')){if(!zipName)zipName=file.name.replace(/\.zip$/i,'');var ents=await parseZip(ab);for(var j=0;j<ents.length;j++){eps.push({t:ents[j].name.replace(/\.txt$/i,''),b:await decodeText(ents[j].bytes)});}}
+        else if(low.endsWith('.txt')){eps.push({t:file.name.replace(/\.txt$/i,''),b:await decodeText(new Uint8Array(ab))});}
+      }catch(err){alert(file.name+' の読み込みに失敗：'+err.message);}
+    }
+    if(!eps.length){alert('.txt が見つかりませんでした。');return;}
+    sortEps(eps);
+    totalChars=0;eps.forEach(function(ep){totalChars+=charCount(ep.b);});
+    novel={t:zipName||(eps.length===1?eps[0].t:'無題'),e:eps};
+    $('#opt-title').value=novel.t;
+    $('#dropzone').style.display='none';
+    $('#panel').style.display='';
+    $('#stat').textContent='全 '+eps.length+' 話 ・ 総 '+fmt(totalChars)+' 文字';
+    render();
+  }
+
+  /* ---- UI 配線 ---- */
+  var dz=$('#dropzone'),fileInput=$('#file');
+  $('#pick').addEventListener('click',function(){fileInput.click();});
+  fileInput.addEventListener('change',function(){var fs=Array.prototype.slice.call(fileInput.files);fileInput.value='';handleFiles(fs);});
+  ['dragenter','dragover'].forEach(function(ev){dz.addEventListener(ev,function(e){e.preventDefault();dz.classList.add('drag');});});
+  ['dragleave','drop'].forEach(function(ev){dz.addEventListener(ev,function(e){e.preventDefault();dz.classList.remove('drag');});});
+  dz.addEventListener('drop',function(e){handleFiles(Array.prototype.slice.call(e.dataTransfer.files));});
+  ['dragover','drop'].forEach(function(ev){window.addEventListener(ev,function(e){e.preventDefault();},false);});
+
+  ['opt-paper','opt-margin','opt-fs','opt-lh','opt-font','opt-mode','opt-cover','opt-toc','opt-pagebreak'].forEach(function(id){
+    var el=document.getElementById(id);if(el)el.addEventListener('change',render);
+  });
+  $('#opt-title').addEventListener('input',function(){if(novel){novel.t=$('#opt-title').value;render();}});
+  $('#btn-print').addEventListener('click',function(){render();setTimeout(function(){window.print();},50);});
+  $('#btn-clear').addEventListener('click',function(){novel=null;$('#book').innerHTML='';$('#panel').style.display='none';$('#dropzone').style.display='';});
+})();
+"""
+
+
+def build_pdf_tool() -> str:
+    head = (
+        "<!DOCTYPE html>\n"
+        '<html lang="ja">\n<head>\n'
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        "<title>txt / zip を読みやすいPDFに整形</title>\n"
+        "<style>\n" + PDF_CSS + "</style>\n"
+        '<style id="pagecss"></style>\n'
+        "</head>\n"
+    )
+    return head + "<body>\n" + PDF_BODY + "\n<script>\n" + PDF_JS + "\n</script>\n</body>\n</html>\n"
 
 
 if __name__ == "__main__":
