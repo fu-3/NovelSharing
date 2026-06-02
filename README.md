@@ -4,7 +4,7 @@
 GitHub に push すると GitHub Actions が自動でビルドし、GitHub Pages で公開します。
 **外部依存なし**（Python 標準ライブラリのみ）。
 
-## 2つの使い方
+## 3つの使い方
 
 1. **自分のサイトとして公開**（`episodes/` に原稿を置いて GitHub Pages で公開）
 2. **誰でもブラウザだけでアップロード＆共有** … `upload.html`
@@ -13,6 +13,12 @@ GitHub に push すると GitHub Actions が自動でビルドし、GitHub Pages
    - 内容を圧縮して **URL に埋め込む**ので、生成されたリンクを送るだけで誰でも読めます
    - 長い作品は「**🔗 短いリンクを作成**」で **58文字程度の短縮URL**に（後述の Cloudflare Worker を使用）
    - またはオフライン向けに「**HTMLファイルで保存**」でファイルごと共有も可能
+3. **zip/txt を読みやすいPDFに整形** … `pdf.html`
+   - 公開URL: **https://fu-3.github.io/NovelSharing/pdf.html**
+   - zip / txt をドラッグ＆ドロップ → 用紙(A4/A5/B5)・余白・文字サイズ・行間・明朝/ゴシック・
+     縦書き/横書き・表紙・目次・各話改ページを選んで整形
+   - 「**PDFとして保存**」→ ブラウザの印刷ダイアログで送信先を「PDFに保存」に
+     （外部ライブラリ不要・選択可能テキストの高品質PDF・100万文字級もOK）
 
 ## 短縮リンク（Cloudflare Workers + KV）
 
