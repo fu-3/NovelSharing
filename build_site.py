@@ -262,6 +262,16 @@ def build_index(episodes, total_chars) -> str:
     return page_html(SITE_TITLE, body, "index")
 
 
+def build_empty_index() -> str:
+    body = (
+        "<h1>{site}</h1>\n".format(site=html.escape(SITE_TITLE))
+        + '<p class="count">まだ原稿がありません。</p>\n'
+        + "<p><code>episodes/</code> に <code>.txt</code> を置くか、"
+        "<code>incoming/</code> に zip を置いて再ビルドしてください。</p>"
+    )
+    return page_html(SITE_TITLE, body, "index")
+
+
 def _nav(prev_ep, next_ep) -> str:
     if prev_ep:
         prev = '<a data-nav-prev href="{}.html">← 前の話</a>'.format(
@@ -339,14 +349,9 @@ def build_all(episodes) -> str:
 def main():
     extract_zips()
 
-    if not EPISODES_DIR.is_dir():
-        print("エラー: {} が見つかりません。".format(EPISODES_DIR), file=sys.stderr)
-        sys.exit(1)
-
-    txt_files = sorted(EPISODES_DIR.glob("*.txt"), key=sort_key)
-    if not txt_files:
-        print("エラー: {} に .txt がありません。".format(EPISODES_DIR), file=sys.stderr)
-        sys.exit(1)
+    txt_files = []
+    if EPISODES_DIR.is_dir():
+        txt_files = sorted(EPISODES_DIR.glob("*.txt"), key=sort_key)
 
     # public/ を作り直す
     if PUBLIC_DIR.exists():
@@ -354,6 +359,14 @@ def main():
     PUBLIC_DIR.mkdir(parents=True)
     (PUBLIC_DIR / "style.css").write_text(CSS, encoding="utf-8")
     (PUBLIC_DIR / "app.js").write_text(JS, encoding="utf-8")
+
+    # 原稿がまだ無い場合は、空のプレースホルダーサイトを生成（CIを止めない）
+    if not txt_files:
+        print("原稿がありません。空のサイトを生成します。"
+              " episodes/ に .txt を、または incoming/ に zip を置いてください。")
+        (PUBLIC_DIR / "index.html").write_text(
+            build_empty_index(), encoding="utf-8")
+        return
 
     # 各話データ
     episodes = []
