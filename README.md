@@ -13,6 +13,7 @@ GitHub に push すると GitHub Actions が自動でビルドし、GitHub Pages
    - 内容を圧縮して **URL に埋め込む**ので、生成されたリンクを送るだけで誰でも読めます
    - 長い作品は「**🔗 短いリンクを作成**」で **58文字程度の短縮URL**に（後述の Cloudflare Worker を使用）
    - またはオフライン向けに「**HTMLファイルで保存**」でファイルごと共有も可能
+   - 「**📄 PDFを作成**」でその場でPDF化（書体・縦横はツールバー設定を反映。表紙＋目次＋各話改ページ）
 3. **zip/txt を読みやすいPDFに整形** … `pdf.html`
    - 公開URL: **https://fu-3.github.io/NovelSharing/pdf.html**
    - zip / txt をドラッグ＆ドロップ → 用紙(A4/A5/B5)・余白・文字サイズ・行間・明朝/ゴシック・
