@@ -4,6 +4,16 @@
 GitHub に push すると GitHub Actions が自動でビルドし、GitHub Pages で公開します。
 **外部依存なし**（Python 標準ライブラリのみ）。
 
+## 2つの使い方
+
+1. **自分のサイトとして公開**（`episodes/` に原稿を置いて GitHub Pages で公開）
+2. **誰でもブラウザだけでアップロード＆共有** … `upload.html`
+   - 公開URL: **https://fu-3.github.io/NovelSharing/upload.html**
+   - zip / txt をドラッグ＆ドロップ → その場でサイト化（**送信なし・完全にブラウザ内処理**）
+   - 内容を圧縮して **URL に埋め込む**ので、生成されたリンクを送るだけで誰でも読めます
+   - URLが長くなりすぎる場合は「**HTMLファイルで保存**」でファイルごと共有も可能
+   - GitHub やサーバーは不要。ページ自体は GitHub Pages に置いてあるだけで、中身はURL側に入ります
+
 ## 原稿の入れ方（2通り）
 
 - `./episodes/` に `.txt` を直接置く
