@@ -649,13 +649,20 @@ JS = """\
   function toast(msg){ var t=document.createElement('div'); t.className='toast'; t.textContent=msg;
     document.body.appendChild(t); setTimeout(function(){t.classList.add('show');},10);
     setTimeout(function(){ t.classList.remove('show'); setTimeout(function(){t.remove();},300); },1800); }
+  function copyLink(url){
+    if(navigator.clipboard&&navigator.clipboard.writeText&&window.isSecureContext){
+      navigator.clipboard.writeText(url).then(function(){ toast('リンクをコピーしました'); },
+        function(){ window.prompt('URLをコピーしてください', url); });
+    } else { window.prompt('URLをコピーしてください', url); }
+  }
   function share(){
-    var data={ title:document.title, url:location.href };
-    if(navigator.share){ navigator.share(data).catch(function(){}); return; }
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(location.href).then(function(){ toast('リンクをコピーしました'); },
-        function(){ window.prompt('URLをコピーしてください', location.href); });
-    } else { window.prompt('URLをコピーしてください', location.href); }
+    var url=location.href, data={ title:document.title, url:url };
+    var coarse=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;
+    if(navigator.share&&coarse&&(!navigator.canShare||navigator.canShare(data))){
+      navigator.share(data).then(function(){},function(err){ if(err&&err.name==='AbortError')return; copyLink(url); });
+      return;
+    }
+    copyLink(url);
   }
   [].forEach.call(document.querySelectorAll('[data-share]'),function(b){ b.addEventListener('click',share); });
   [].forEach.call(document.querySelectorAll('[data-share-x]'),function(a){
@@ -867,9 +874,13 @@ APP_JS = r"""
 
   function toast(msg){var t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(function(){t.classList.add('show');},10);setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},300);},1800);}
   function shareUrl(url,title){
-    if(navigator.share){navigator.share({title:title||document.title,url:url}).catch(function(){});return;}
-    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(function(){toast('リンクをコピーしました');},function(){window.prompt('URL',url);});}
-    else window.prompt('URL',url);
+    var data={title:title||document.title,url:url};
+    var coarse=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;
+    if(navigator.share&&coarse&&(!navigator.canShare||navigator.canShare(data))){
+      navigator.share(data).then(function(){},function(err){if(err&&err.name==='AbortError')return;copyText(url);});
+      return;
+    }
+    copyText(url);
   }
   [].forEach.call(document.querySelectorAll('[data-share]'),function(b){b.addEventListener('click',function(){shareUrl(location.href,document.title);});});
   function fallbackCopy(text){try{var ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.top='0';ta.style.opacity='0';document.body.appendChild(ta);ta.focus();ta.select();ta.setSelectionRange(0,text.length);var ok=document.execCommand('copy');ta.remove();toast(ok?'リンクをコピーしました':'コピーできませんでした。手動で選択してください');return ok;}catch(e){toast('コピーできませんでした');return false;}}
