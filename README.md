@@ -11,8 +11,31 @@ GitHub に push すると GitHub Actions が自動でビルドし、GitHub Pages
    - 公開URL: **https://fu-3.github.io/NovelSharing/upload.html**
    - zip / txt をドラッグ＆ドロップ → その場でサイト化（**送信なし・完全にブラウザ内処理**）
    - 内容を圧縮して **URL に埋め込む**ので、生成されたリンクを送るだけで誰でも読めます
-   - URLが長くなりすぎる場合は「**HTMLファイルで保存**」でファイルごと共有も可能
-   - GitHub やサーバーは不要。ページ自体は GitHub Pages に置いてあるだけで、中身はURL側に入ります
+   - 長い作品は「**🔗 短いリンクを作成**」で **58文字程度の短縮URL**に（後述の Cloudflare Worker を使用）
+   - またはオフライン向けに「**HTMLファイルで保存**」でファイルごと共有も可能
+
+## 短縮リンク（Cloudflare Workers + KV）
+
+長い作品でも `https://fu-3.github.io/NovelSharing/upload.html#s=XXXXXXXX` のような
+**短いURL**で共有できます。仕組み:
+
+- `upload.html` の「短いリンクを作成」を押すと、圧縮済みデータを Worker に保存し、短いキーを受け取る
+- 共有相手が `#s=キー` を開くと Worker からデータを取得して表示
+- 保存先は **あなたの Cloudflare アカウントの KV**（`worker/` がそのコード）
+
+### Worker の再デプロイ
+
+`worker/worker.js` を変更したときは:
+
+```sh
+cd worker
+npx wrangler deploy
+```
+
+- 現在のエンドポイント: `https://novel-share.fu-3.workers.dev`
+- URL を変えた場合は `build_site.py` の `SHORTENER_URL` を更新して push
+- 無料枠の目安: KV 書き込み 1,000/日・読み取り 100,000/日・保存 1GB。データは 1 年で自動失効（`worker/worker.js` の `TTL_SECONDS`）
+- 1 投稿の上限は 1.5MB（`MAX_BYTES`）
 
 ## 原稿の入れ方（2通り）
 
