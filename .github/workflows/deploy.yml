@@ -46,8 +46,10 @@ jobs:
             fi
           fi
 
-      - name: Pages 設定
+      - name: Pages 設定（未設定なら自動で有効化）
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: 成果物（public/）をアップロード
         uses: actions/upload-pages-artifact@v3
