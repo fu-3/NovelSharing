@@ -5,9 +5,9 @@ on:
     branches: [main]   # main に push されたら実行
   workflow_dispatch:    # Actions タブから手動実行も可能
 
-# GitHub Pages へのデプロイに必要な権限
+# Pages デプロイ + zip展開の commit に必要な権限
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -28,8 +28,23 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: サイトを生成
+      - name: サイトを生成（incoming/ の zip も自動展開）
         run: python build_site.py
+
+      - name: 取り込んだ原稿を保存（zip を展開して commit、zip は削除）
+        run: |
+          # build_site.py が incoming/*.zip を episodes/ へ展開済み。
+          # 展開結果を main に保存し、処理済み zip を消す。
+          if ls incoming/*.zip >/dev/null 2>&1 || [ -n "$(git status --porcelain episodes)" ]; then
+            rm -f incoming/*.zip
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A episodes incoming
+            if ! git diff --cached --quiet; then
+              git commit -m "原稿を取り込み（zip 展開）[skip ci]"
+              git push
+            fi
+          fi
 
       - name: Pages 設定
         uses: actions/configure-pages@v5
